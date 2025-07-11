@@ -55,6 +55,11 @@ function notifyPlayer(title, content, duration, image)
 	})
 end
 
+--// Only restarts if you lose or win, so pretty much auto-repeat.
+function autoRepeat()
+	game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("RestartMatch"):FireServer()
+end
+
 function getUnits()
 	local unitsPath = game:GetService("Players").LocalPlayer.Slots
 
