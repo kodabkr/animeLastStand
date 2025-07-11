@@ -92,7 +92,7 @@ function setServerAutoUpgrade(towerInstance)
 end
 
 --// Position Save/Load Functions
-local positionSaveFile = "soaHub/unitPositions.json"
+local positionSaveFile = "soaHub/unitPositionsTest.json"
 
 function visualizePlacement()
 	local part = Instance.new("Part")
