@@ -25,20 +25,22 @@ local localPlayer = Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
 --// Module Data
-local units = {} -- Maps slot index (1-6) to the unit's real name (e.g., units[1] = "LuffyG5")
-local unitData = {} -- Stores UI elements and position data for each slot
+local units = {} -- Maps slot index (1-6) to the unit's base name (e.g., units[1] = "LuffyG5")
+local unitData = {} -- Stores UI elements and data for each slot
+local processedTowers = {} -- Tracks towers that have had auto-upgrade enabled
+
 for i = 1, 6 do
 	unitData[i] = {
 		position = nil,
 		isWaitingForClick = false,
 		positionBtn = nil,
 		positionLabel = nil,
+		enableServerAutoUpgrade = false, -- Flag for the new toggle
 	}
 end
 
 --// Core Functions
 
---// Gets the real unit names from the player's slots
 function getUnits()
 	table.clear(units)
 	local slotsPath = localPlayer:WaitForChild("Slots")
@@ -61,7 +63,6 @@ function getMousePosition()
 	return mouse.Hit.p
 end
 
---// Places a unit using its real name and a CFrame position
 function placeUnit(unitName, position)
 	if not unitName or not position then
 		return
@@ -73,34 +74,13 @@ function placeUnit(unitName, position)
 	ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("PlaceTower"):FireServer(unpack(args))
 end
 
---// Finds the deployed tower nearest to the set position and upgrades it
-function upgradeUnit(unitIndex, upgradeAmount)
-	local targetPosition = unitData[unitIndex].position
-	if not targetPosition then
+--// This function now handles enabling the server-side auto-upgrade for a tower
+function setServerAutoUpgrade(towerInstance)
+	if not towerInstance then
 		return
 	end
-
-	local towersFolder = workspace:WaitForChild("Towers")
-	local closestTower = nil
-	local minDistance = 7 -- Increased search radius slightly for safety
-
-	for _, tower in ipairs(towersFolder:GetChildren()) do
-		if tower:IsA("Model") and tower.PrimaryPart then
-			local distance = (tower.PrimaryPart.Position - targetPosition).Magnitude
-			if distance < minDistance then
-				minDistance = distance
-				closestTower = tower
-			end
-		end
-	end
-
-	if closestTower then
-		for i = 1, upgradeAmount or 1 do
-			local args = { closestTower }
-			ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Upgrade"):InvokeServer(unpack(args))
-			task.wait(0.1)
-		end
-	end
+	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UnitManager"):WaitForChild("SetAutoUpgrade")
+	remote:FireServer(towerInstance, true)
 end
 
 --// Position Save/Load Functions
@@ -135,7 +115,6 @@ function loadPositions()
 				if slotIndex and unitData[slotIndex] and unitData[slotIndex].positionLabel then
 					local loadedPos = Vector3.new(posData.x, posData.y, posData.z)
 					unitData[slotIndex].position = loadedPos
-					-- This is the key change: Set the label text after it has been created
 					unitData[slotIndex].positionLabel:Set("Position: " .. tostring(loadedPos))
 				end
 			end
@@ -144,10 +123,9 @@ function loadPositions()
 end
 
 --// UI Declaration
-getUnits() -- Load unit names before creating the UI
+getUnits()
 local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
---// Dynamically create UI for all 6 unit slots
 for i = 1, 6 do
 	local unitName = units[i] or "Empty Slot"
 	local isSlotEmpty = not units[i]
@@ -158,10 +136,7 @@ for i = 1, 6 do
 		sectionLabel:SetColor(Color3.fromRGB(180, 180, 180))
 	end
 
-	unitData[i].positionLabel = AutomationTab:CreateLabel(
-		"Position: Not Set", -- Default text
-		"arrow-down-to-dot"
-	)
+	unitData[i].positionLabel = AutomationTab:CreateLabel("Position: Not Set", "arrow-down-to-dot")
 
 	unitData[i].positionBtn = AutomationTab:CreateButton({
 		Name = "Set Position",
@@ -181,21 +156,20 @@ for i = 1, 6 do
 		Flag = "APU" .. i,
 		Enabled = not isSlotEmpty,
 		Callback = function(Value)
-			while Value and task.wait(0.05) do
+			while Value and task.wait(0.25) do
 				placeUnit(units[i], unitData[i].position)
 			end
 		end,
 	})
 
 	AutomationTab:CreateToggle({
-		Name = "Auto Upgrade Unit",
+		Name = "Enable Server Auto-Upgrade", -- Renamed Toggle
 		CurrentValue = false,
 		Flag = "AU" .. i,
 		Enabled = not isSlotEmpty,
 		Callback = function(Value)
-			while Value and task.wait(0.05) do
-				upgradeUnit(i, 1)
-			end
+			-- This toggle now just sets a flag. The main loop will handle the logic.
+			unitData[i].enableServerAutoUpgrade = Value
 		end,
 	})
 end
@@ -211,13 +185,57 @@ UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
 				if unitData[i].positionBtn then
 					unitData[i].positionBtn:Set("Set Position")
 				end
-				savePositions() -- Save after setting a new position
+				savePositions()
 				break
 			end
 		end
 	end
 end)
 
+--// Main background loop for handling server-side auto-upgrades
+coroutine.wrap(function()
+	local placementLimits = localPlayer:WaitForChild("PlacementLimits")
+	local towersFolder = workspace:WaitForChild("Towers")
+
+	while task.wait(1) do -- Loop every second
+		-- Get a dictionary of currently placed units from PlacementLimits
+		local placedUnits = {}
+		for _, limitValue in ipairs(placementLimits:GetChildren()) do
+			if limitValue:IsA("IntValue") then
+				placedUnits[limitValue.Name] = true
+			end
+		end
+
+		-- Check which towers need their auto-upgrade enabled
+		for unitName, _ in pairs(placedUnits) do
+			local towerInstance = towersFolder:FindFirstChild(unitName)
+
+			-- If the tower exists and we haven't processed it yet
+			if towerInstance and not processedTowers[towerInstance] then
+				-- Now, figure out which slot this tower belongs to by checking positions
+				for i = 1, 6 do
+					-- Check if the toggle for this slot is on and if its position is close to the tower
+					if unitData[i].enableServerAutoUpgrade and unitData[i].position then
+						if (towerInstance.PrimaryPart.Position - unitData[i].position).Magnitude < 5 then
+							-- We found the right slot! Enable auto-upgrade and mark as processed.
+							setServerAutoUpgrade(towerInstance)
+							processedTowers[towerInstance] = true
+							break -- Stop checking other slots for this tower
+						end
+					end
+				end
+			end
+		end
+
+		-- Clean up the 'processedTowers' table to remove towers that no longer exist
+		for tower, _ in pairs(processedTowers) do
+			if not tower.Parent then
+				processedTowers[tower] = nil
+			end
+		end
+	end
+end)()
+
 --// Load configurations AFTER UI has been created
-loadPositions() -- Load and display saved positions
-Rayfield:LoadConfiguration() -- Load Rayfield's data (toggles, etc.)
+loadPositions()
+Rayfield:LoadConfiguration()
