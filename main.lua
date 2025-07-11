@@ -81,7 +81,7 @@ local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 local unit1Position = nil
 local Unit1Position = AutomationTab:CreateLabel(
 	"Unit 1 Position: " .. tostring(unit1Position),
-	"location-edit",
+	"arrow-down-to-dot",
 	Color3.fromRGB(123, 123, 123),
 	false
 )
