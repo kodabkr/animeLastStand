@@ -2,49 +2,41 @@ local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
 	Name = "Soa Hub",
-	Icon = "eye", -- Icon in Topbar. Can use Lucide Icons (string) or Roblox Image (number). 0 to use no icon (default).
+	Icon = "eye",
 	LoadingTitle = "Soa Hub",
 	LoadingSubtitle = "by Koda",
-	ShowText = "Rayfield", -- for mobile users to unhide rayfield, change if you'd like
-	Theme = "Amethyst", -- Check https://docs.sirius.menu/rayfield/configuration/themes
-
-	ToggleUIKeybind = "K", -- The keybind to toggle the UI visibility (string like "K" or Enum.KeyCode)
-
-	DisableRayfieldPrompts = false,
-	DisableBuildWarnings = false, -- Prevents Rayfield from warning when the script has a version mismatch with the interface
+	ShowText = "Rayfield",
+	Theme = "Amethyst",
+	ToggleUIKeybind = "K",
 
 	ConfigurationSaving = {
 		Enabled = true,
-		FolderName = "soaHub", -- Create a custom folder for your hub/game
+		FolderName = "soaHub",
 		FileName = "alsCFG",
-	},
-
-	Discord = {
-		Enabled = false, -- Prompt the user to join your Discord server if their executor supports it
-		Invite = "noinvitelink", -- The Discord invite code, do not include discord.gg/. E.g. discord.gg/ ABCD would be ABCD
-		RememberJoins = true, -- Set this to false to make them join the discord every time they load it up
-	},
-
-	KeySystem = false,
-
-	KeySettings = {
-		Title = "Untitled",
-		Subtitle = "Key System",
-		Note = "No method of obtaining the key is provided", -- Use this to tell the user how to get a key
-		FileName = "Key", -- It is recommended to use something unique as other scripts using Rayfield may overwrite your key file
-		SaveKey = true, -- The user's key will be saved, but if you change the key, they will be unable to use your script
-		GrabKeyFromSite = false, -- If this is true, set Key below to the RAW site you would like Rayfield to get the key from
-		Key = { "Hello" }, -- List of keys that will be accepted by the system, can be RAW file links (pastebin, github etc) or simple strings ("hello","key22")
 	},
 })
 
---// Functionality
-
+--// Services & Local Player
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
-local units = {}
+
+--// Module Data
+local units = {} -- This will map a slot index (1-6) to the unit's real name (e.g., units[1] = "LuffyG5")
+local unitData = {} -- This will store UI elements and position data for each slot
+for i = 1, 6 do
+	unitData[i] = {
+		position = nil,
+		isWaitingForClick = false,
+		positionBtn = nil,
+		positionLabel = nil,
+	}
+end
+
+--// Core Functions
 
 function notifyPlayer(title, content, duration, image)
 	Rayfield:Notify({
@@ -55,178 +47,188 @@ function notifyPlayer(title, content, duration, image)
 	})
 end
 
---// Only restarts if you lose or win, so pretty much auto-repeat.
-function autoRepeat()
-	game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("RestartMatch"):FireServer()
-end
-
+--// Gets the real unit names from the player's slots
 function getUnits()
-	local unitsPath = game:GetService("Players").LocalPlayer.Slots
+	-- Reset the current unit list
+	table.clear(units)
+	local slotsPath = localPlayer:WaitForChild("Slots")
+	local slotChildren = slotsPath:GetChildren()
 
-	for _, unit in ipairs(unitsPath:GetChildren()) do
-		if unit:IsA("StringValue") then
-			table.insert(units, unit.Value)
+	-- Sort children by name to ensure Slot1, Slot2, etc., are in order
+	table.sort(slotChildren, function(a, b)
+		return a.Name < b.Name
+	end)
+
+	for _, slotInstance in ipairs(slotChildren) do
+		if slotInstance:IsA("StringValue") then
+			-- Extract the number from the slot name (e.g., "Slot1" -> 1)
+			local slotIndex = tonumber(string.match(slotInstance.Name, "%d+"))
+			if slotIndex then
+				units[slotIndex] = slotInstance.Value
+			end
 		end
 	end
 end
-
-getUnits()
 
 function getMousePosition()
 	return mouse.Hit.p
 end
 
-function placeUnit(unit, position)
+--// Places a unit using its real name and a CFrame position
+function placeUnit(unitName, position)
+	if not unitName or not position then
+		return
+	end
 	local args = {
-		tostring(unit),
+		tostring(unitName),
 		CFrame.new(position),
 	}
-	game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PlaceTower"):FireServer(unpack(args))
+	ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("PlaceTower"):FireServer(unpack(args))
 end
 
-function upgradeUnit(unit, upgradeAmount)
-	upgradeAmount = tonumber(upgradeAmount) or 1
+--// Finds the deployed tower nearest to the set position and upgrades it
+function upgradeUnit(unitIndex, upgradeAmount)
+	local targetPosition = unitData[unitIndex].position
+	if not targetPosition then
+		return
+	end
 
-	for i = 1, upgradeAmount do
-		local args = {
-			workspace:WaitForChild("Towers"):WaitForChild(tostring(unit)),
-		}
-		game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Upgrade"):InvokeServer(unpack(args))
+	local towersFolder = workspace:WaitForChild("Towers")
+	local closestTower = nil
+	local minDistance = 5 -- Search radius in studs
+
+	-- Find the tower in the workspace closest to our saved position
+	for _, tower in ipairs(towersFolder:GetChildren()) do
+		if tower:IsA("Model") and tower.PrimaryPart then
+			local distance = (tower.PrimaryPart.Position - targetPosition).Magnitude
+			if distance < minDistance then
+				minDistance = distance
+				closestTower = tower
+			end
+		end
+	end
+
+	if closestTower then
+		-- Perform the requested number of upgrades
+		for i = 1, upgradeAmount or 1 do
+			local args = { closestTower }
+			ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Upgrade"):InvokeServer(unpack(args))
+			task.wait(0.1) -- Small delay to prevent server overload
+		end
+	end
+end
+
+--// Position Save/Load Functions
+local positionSaveFile = "soaHub/unitPositions.json"
+
+function savePositions()
+	local positionsToSave = {}
+	for i = 1, #unitData do
+		if unitData[i].position then
+			positionsToSave["Unit" .. i] = {
+				x = unitData[i].position.X,
+				y = unitData[i].position.Y,
+				z = unitData[i].position.Z,
+			}
+		end
+	end
+	writefile(positionSaveFile, HttpService:JSONEncode(positionsToSave))
+end
+
+function loadPositions()
+	if not isfolder("soaHub") then
+		makefolder("soaHub")
+	end
+	if isfile(positionSaveFile) then
+		local success, data = pcall(function()
+			return HttpService:JSONDecode(readfile(positionSaveFile))
+		end)
+
+		if success and data then
+			for unitName, posData in pairs(data) do
+				local unitIndex = tonumber(string.gsub(unitName, "Unit", ""))
+				if unitData[unitIndex] and unitData[unitIndex].positionLabel then
+					unitData[unitIndex].position = Vector3.new(posData.x, posData.y, posData.z)
+					unitData[unitIndex].positionLabel:Set("Position: " .. tostring(unitData[unitIndex].position))
+				end
+			end
+		end
 	end
 end
 
 --// UI Declaration
+getUnits() -- Load unit names before creating the UI
 local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
---// UNIT 1
-local Unit1Divider = AutomationTab:CreateDivider()
-local unit1Position = nil
-local isWaitingForUnit1Click = false
-local unit1PositionBtn
+--// Dynamically create UI for all 6 unit slots
+for i = 1, 6 do
+	-- Use the real unit name for the UI, or a default if the slot is empty
+	local unitName = units[i] or "Empty Slot " .. i
+	local isSlotEmpty = not units[i]
 
-local Unit1Position = AutomationTab:CreateLabel(
-	"Unit 1 Position: " .. tostring(unit1Position),
-	"arrow-down-to-dot",
-	Color3.fromRGB(255, 255, 255),
-	false
-)
+	AutomationTab:CreateDivider()
+	local sectionLabel = AutomationTab:CreateLabel(string.format("Configuration for: %s", unitName))
+	if isSlotEmpty then
+		sectionLabel:SetColor(Color3.fromRGB(180, 180, 180)) -- Grey out text for empty slots
+	end
 
+	unitData[i].positionLabel = AutomationTab:CreateLabel("Position: Not Set", "arrow-down-to-dot")
+
+	unitData[i].positionBtn = AutomationTab:CreateButton({
+		Name = "Set Position",
+		Callback = function()
+			unitData[i].isWaitingForClick = not unitData[i].isWaitingForClick
+			if unitData[i].isWaitingForClick then
+				unitData[i].positionBtn:Set("Waiting for click...")
+			else
+				unitData[i].positionBtn:Set("Set Position")
+			end
+		end,
+	})
+
+	AutomationTab:CreateToggle({
+		Name = "Auto Place Unit",
+		CurrentValue = false,
+		Flag = "APU" .. i,
+		Enabled = not isSlotEmpty,
+		Callback = function(Value)
+			while Value and task.wait(0.25) do
+				placeUnit(units[i], unitData[i].position)
+			end
+		end,
+	})
+
+	AutomationTab:CreateToggle({
+		Name = "Auto Upgrade Unit",
+		CurrentValue = false,
+		Flag = "AU" .. i,
+		Enabled = not isSlotEmpty,
+		Callback = function(Value)
+			while Value and task.wait(0.25) do
+				upgradeUnit(i, 1)
+			end
+		end,
+	})
+end
+
+--// Global Input Handler
 UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-	if isWaitingForUnit1Click and input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessedEvent then
-		unit1Position = getMousePosition()
-		Unit1Position:Set("Unit 1 Position: " .. tostring(unit1Position))
-
-		isWaitingForUnit1Click = false
-		if unit1PositionBtn then
-			unit1PositionBtn:Set("Set Unit 1 Position")
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessedEvent then
+		for i = 1, #unitData do
+			if unitData[i].isWaitingForClick then
+				unitData[i].position = getMousePosition()
+				unitData[i].positionLabel:Set("Position: " .. tostring(unitData[i].position))
+				unitData[i].isWaitingForClick = false
+				if unitData[i].positionBtn then
+					unitData[i].positionBtn:Set("Set Position")
+				end
+				savePositions() -- Save after setting a new position
+				break
+			end
 		end
 	end
 end)
 
-unit1PositionBtn = AutomationTab:CreateButton({
-	Name = "Set Unit 1 Position",
-	Callback = function()
-		isWaitingForUnit1Click = not isWaitingForUnit1Click
-
-		if isWaitingForUnit1Click then
-			unit1PositionBtn:Set("Waiting for click...")
-		else
-			unit1PositionBtn:Set("Set Unit 1 Position")
-		end
-	end,
-})
-
-local autoPlace1 = AutomationTab:CreateToggle({
-	Name = "Auto Place: Unit 1",
-	CurrentValue = false,
-	Flag = "APU1",
-	Callback = function(Value)
-		while Value do
-			placeUnit("Unit1", unit1Position)
-			task.wait(0.25)
-		end
-	end,
-})
-
-local autoUpgrade1 = AutomationTab:CreateToggle({
-	Name = "Auto Upgrade: Unit 1",
-	CurrentValue = false,
-	Flag = "AU1",
-	Callback = function(Value)
-		while Value do
-			if unit1Position then
-				upgradeUnit("Unit1", 1)
-			end
-			task.wait(0.25)
-		end
-	end,
-})
-
---// UNIT 2
-local Unit2Divider = AutomationTab:CreateDivider()
-local unit2Position = nil
-local isWaitingForUnit2Click = false
-local unit2PositionBtn
-
-local Unit2Position = AutomationTab:CreateLabel(
-	"Unit 2 Position: " .. tostring(unit2Position),
-	"arrow-down-to-dot",
-	Color3.fromRGB(255, 255, 255),
-	false
-)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-	if isWaitingForUnit2Click and input.UserInputType == Enum.UserInputType.MouseButton1 and not gameProcessedEvent then
-		unit2Position = getMousePosition()
-		Unit2Position:Set("Unit 2 Position: " .. tostring(unit2Position))
-
-		isWaitingForUnit2Click = false
-		if unit2PositionBtn then
-			unit2PositionBtn:Set("Set Unit 2 Position")
-		end
-	end
-end)
-
-unit2PositionBtn = AutomationTab:CreateButton({
-	Name = "Set Unit 2 Position",
-	Callback = function()
-		isWaitingForUnit2Click = not isWaitingForUnit2Click
-
-		if isWaitingForUnit2Click then
-			unit2PositionBtn:Set("Waiting for click...")
-		else
-			unit2PositionBtn:Set("Set Unit 2 Position")
-		end
-	end,
-})
-
-local autoPlace2 = AutomationTab:CreateToggle({
-	Name = "Auto Place: Unit 2",
-	CurrentValue = false,
-	Flag = "APU2",
-	Callback = function(Value)
-		while Value do
-			if unit2Position then
-				placeUnit("Unit2", unit2Position)
-			end
-			task.wait(0.25)
-		end
-	end,
-})
-
-local autoUpgrade2 = AutomationTab:CreateToggle({
-	Name = "Auto Upgrade: Unit 2",
-	CurrentValue = false,
-	Flag = "AU2",
-	Callback = function(Value)
-		while Value do
-			if unit2Position then
-				upgradeUnit("Unit2", 1)
-			end
-			task.wait(0.25)
-		end
-	end,
-})
-
---// DONT TOUCH.
-Rayfield:LoadConfiguration()
+--// Load configurations
+loadPositions() -- Load custom position data first
+Rayfield:LoadConfiguration() -- Then load Rayfield's toggle data
