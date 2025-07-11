@@ -11,8 +11,8 @@ local Window = Rayfield:CreateWindow({
 
 	ConfigurationSaving = {
 		Enabled = true,
-		FolderName = "soaHub",
-		FileName = "alsCFG",
+		FolderName = "soaHubTesting",
+		FileName = "alsTestingCFG",
 	},
 })
 

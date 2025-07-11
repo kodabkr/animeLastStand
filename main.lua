@@ -40,6 +40,14 @@ for i = 1, 6 do
 end
 
 --// Core Functions
+function notify(title, message)
+	Rayfield:Notify({
+		Title = tostring(title),
+		Content = tostring(message),
+		Duration = 3,
+		Image = "x",
+	})
+end
 
 function getUnits()
 	table.clear(units)
@@ -86,6 +94,25 @@ end
 --// Position Save/Load Functions
 local positionSaveFile = "soaHub/unitPositions.json"
 
+function visualizePlacement()
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(1, 1, 1)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Position = getMousePosition()
+	part.Color = Color3.fromRGB(168, 255, 151) -- Green color for visibility
+	part.Parent = workspace
+end
+
+function summonUnits(amount, banner)
+	local args = {
+		tonumber(amount),
+		tostring(banner),
+	}
+
+	game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Summon"):InvokeServer(unpack(args))
+end
+
 function savePositions()
 	if not isfolder("soaHub") then
 		makefolder("soaHub")
@@ -124,7 +151,7 @@ end
 
 --// UI Declaration
 getUnits()
-local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
+AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
 for i = 1, 6 do
 	local unitName = units[i] or "Empty Slot"
@@ -163,7 +190,7 @@ for i = 1, 6 do
 	})
 
 	AutomationTab:CreateToggle({
-		Name = "Enable Server Auto-Upgrade", -- Renamed Toggle
+		Name = "Enable Auto-Upgrade", -- Renamed Toggle
 		CurrentValue = false,
 		Flag = "AU" .. i,
 		Enabled = not isSlotEmpty,
@@ -235,6 +262,91 @@ coroutine.wrap(function()
 		end
 	end
 end)()
+
+--// SUMMON FUNCTIONALITY
+local SummonDivider = AutomationTab:CreateDivider()
+
+local SelectedBanner = "1" -- Default banner selection
+local SummonAmount = 1
+local SummonDelay = 0.5 -- Default delay time
+
+SummonAmountTextBox = AutomationTab:CreateInput({
+	Name = "Summon Amount",
+	CurrentValue = "1",
+	PlaceholderText = "Enter amount (max 10)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "SummonAmount",
+
+	Callback = function(Text)
+		--// Validate the input to ensure it's a number between 1 and 10
+		if tonumber(Text) > 10 then
+			notify("Error", "You cannot summon more than 10 at a time!")
+			SummonAmountTextBox:Set("10") -- Reset to max allowed
+		elseif tonumber(Text) < 1 then
+			notify("Error", "You cannot summon less than 1 at a time!")
+			SummonAmountTextBox:Set("1") -- Reset to min allowed
+			return
+		end
+
+		SummonAmount = tonumber(Text) or 1
+	end,
+})
+
+BannerDropdown = AutomationTab:CreateDropdown({
+	Name = "Select Banner",
+	Options = { "1", "2", "3", "4" },
+	CurrentOption = { "1" },
+	MultipleOptions = false,
+	Flag = "BannerSelection",
+
+	Callback = function(Options)
+		SelectedBanner = Options[1]
+	end,
+})
+
+DelayTimeInput = AutomationTab:CreateInput({
+	Name = "Summon Delay (Seconds)",
+	CurrentValue = "0.5",
+	PlaceholderText = "0.5",
+	RemoveTextAfterFocusLost = false,
+	Flag = "SummonDelay",
+
+	Callback = function(Text)
+		if tonumber(Text) < 0.5 then
+			notify("Error", "Delay time must be at least 0.5 seconds!")
+			DelayTimeInput:Set("0.5")
+			return
+		end
+		SummonDelay = tonumber(Text) or 0.5
+	end,
+})
+
+local autoSummonEnabled = false -- Add this variable at the top near other globals
+
+SummonToggle = AutomationTab:CreateToggle({
+	Name = "Auto Summon",
+	CurrentValue = false,
+	Flag = "AutoSummon",
+	Callback = function(Value)
+		autoSummonEnabled = Value
+		if autoSummonEnabled then
+			coroutine.wrap(function()
+				while autoSummonEnabled do
+					if not (SelectedBanner and SummonAmount > 0) then
+						notify("Error", "Please select a valid banner and amount.")
+						SummonToggle:Set(false)
+						autoSummonEnabled = false
+						break
+					end
+
+					summonUnits(SummonAmount, SelectedBanner)
+
+					task.wait(SummonDelay)
+				end
+			end)()
+		end
+	end,
+})
 
 --// Load configurations AFTER UI has been created
 loadPositions()
