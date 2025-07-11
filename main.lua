@@ -42,6 +42,15 @@ local Window = Rayfield:CreateWindow({
 
 local UserInputService = game:GetService("UserInputService")
 
+function notifyPlayer(title, content, duration, image)
+	Rayfield:Notify({
+		Title = title,
+		Content = content,
+		Duration = duration,
+		Image = tostring(image),
+	})
+end
+
 function getMousePosition()
 	local mousePos = UserInputService:GetMouseLocation()
 	return mousePos
@@ -67,8 +76,7 @@ function upgradeUnit(unit, upgradeAmount)
 end
 
 --// UI Declaration
-
-local AutomationTab = Window:CreateTab("Automation", 4483362458) -- Title, Image
+local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
 --// DONT TOUCH.
 Rayfield:LoadConfiguration()
