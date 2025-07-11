@@ -38,6 +38,8 @@ local Window = Rayfield:CreateWindow({
 	},
 })
 
+--// Functionality
+
 local UserInputService = game:GetService("UserInputService")
 
 function getMousePosition()
@@ -63,3 +65,10 @@ function upgradeUnit(unit, upgradeAmount)
 		game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Upgrade"):InvokeServer(unpack(args))
 	end
 end
+
+--// UI Declaration
+
+local AutomationTab = Window:CreateTab("Automation", 4483362458) -- Title, Image
+
+--// DONT TOUCH.
+Rayfield:LoadConfiguration()
