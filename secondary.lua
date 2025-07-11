@@ -12,7 +12,7 @@ local Window = Rayfield:CreateWindow({
 	ConfigurationSaving = {
 		Enabled = true,
 		FolderName = "soaHubTesting",
-		FileName = "alsTestingCFG",
+		FileName = "alsTestCFG",
 	},
 })
 
@@ -24,11 +24,8 @@ local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
---// Module Data
-local configFolderName = "soaHub"
-local currentConfigFile = "default.json" -- The config that is currently loaded
-
-local units = {} -- Maps slot index (1-6) to the unit's base name
+--// Data
+local units = {} -- Maps slot index (1-6) to the unit's base name (e.g., units[1] = "LuffyG5")
 local unitData = {} -- Stores UI elements and data for each slot
 local processedTowers = {} -- Tracks towers that have had auto-upgrade enabled
 
@@ -38,14 +35,19 @@ for i = 1, 6 do
 		isWaitingForClick = false,
 		positionBtn = nil,
 		positionLabel = nil,
-		enableServerAutoUpgrade = false,
+		enableServerAutoUpgrade = false, -- Flag for the new toggle
 	}
 end
 
---// Forward declaration for UI elements
-local ConfigDropdown
-
 --// Core Functions
+function notify(title, message, image)
+	Rayfield:Notify({
+		Title = tostring(title),
+		Content = tostring(message),
+		Duration = 3,
+		Image = tostring(image),
+	})
+end
 
 function getUnits()
 	table.clear(units)
@@ -73,73 +75,68 @@ function placeUnit(unitName, position)
 	if not unitName or not position then
 		return
 	end
-	ReplicatedStorage:WaitForChild("Remotes")
-		:WaitForChild("PlaceTower")
-		:FireServer(tostring(unitName), CFrame.new(position))
+	local args = {
+		tostring(unitName),
+		CFrame.new(position),
+	}
+	ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("PlaceTower"):FireServer(unpack(args))
 end
 
+--// This function now handles enabling the server-side auto-upgrade for a tower
 function setServerAutoUpgrade(towerInstance)
 	if not towerInstance then
 		return
 	end
-	ReplicatedStorage:WaitForChild("Remotes")
-		:WaitForChild("UnitManager")
-		:WaitForChild("SetAutoUpgrade")
-		:FireServer(towerInstance, true)
+	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("UnitManager"):WaitForChild("SetAutoUpgrade")
+	remote:FireServer(towerInstance, true)
 end
 
---// -- Position & Config Management Functions --
+--// Position Save/Load Functions
+local positionSaveFile = "soaHub/unitPositions.json"
 
---// Refreshes the dropdown list with all .json files in the config folder
-function refreshConfigDropdown()
-	if not ConfigDropdown then
-		return
-	end
-	local configs = {}
-	if isfolder(configFolderName) then
-		for _, file in ipairs(listfiles(configFolderName)) do
-			if file:match("%.json$") then
-				table.insert(configs, file:gsub(configFolderName .. "/", "")) -- Add just the filename
-			end
-		end
-	end
-	ConfigDropdown:SetValues(configs)
+function visualizePlacement()
+	local part = Instance.new("Part")
+	part.Size = Vector3.new(1, 1, 1)
+	part.Anchored = true
+	part.CanCollide = false
+	part.Position = getMousePosition()
+	part.Color = Color3.fromRGB(168, 255, 151) -- Green color for visibility
+	part.Parent = workspace
 end
 
---// Saves the current positions to a specified file
-function savePositions(filename)
-	if not filename then
-		return
-	end
-	if not isfolder(configFolderName) then
-		makefolder(configFolderName)
-	end
+function summonUnits(amount, banner)
+	local args = {
+		tonumber(amount),
+		tostring(banner),
+	}
 
+	game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Summon"):InvokeServer(unpack(args))
+end
+
+function savePositions()
+	if not isfolder("soaHub") then
+		makefolder("soaHub")
+	end
 	local positionsToSave = {}
 	for i = 1, #unitData do
 		if unitData[i].position then
-			positionsToSave["Slot" .. i] =
-				{ x = unitData[i].position.X, y = unitData[i].position.Y, z = unitData[i].position.Z }
+			positionsToSave["Slot" .. i] = {
+				x = unitData[i].position.X,
+				y = unitData[i].position.Y,
+				z = unitData[i].position.Z,
+			}
 		end
 	end
-	writefile(configFolderName .. "/" .. filename, HttpService:JSONEncode(positionsToSave))
+	writefile(positionSaveFile, HttpService:JSONEncode(positionsToSave))
 end
 
---// Loads positions from a specified file and updates the UI
-function loadPositions(filename)
-	local filePath = configFolderName .. "/" .. filename
-	if isfile(filePath) then
+function loadPositions()
+	if isfile(positionSaveFile) then
 		local success, data = pcall(function()
-			return HttpService:JSONDecode(readfile(filePath))
+			return HttpService:JSONDecode(readfile(positionSaveFile))
 		end)
 
 		if success and data then
-			-- Clear old positions first
-			for i = 1, #unitData do
-				unitData[i].position = nil
-				unitData[i].positionLabel:Set("Position: Not Set")
-			end
-			-- Load new positions
 			for slotName, posData in pairs(data) do
 				local slotIndex = tonumber(string.match(slotName, "%d+"))
 				if slotIndex and unitData[slotIndex] and unitData[slotIndex].positionLabel then
@@ -148,18 +145,13 @@ function loadPositions(filename)
 					unitData[slotIndex].positionLabel:Set("Position: " .. tostring(loadedPos))
 				end
 			end
-			currentConfigFile = filename -- Set the loaded file as the active one
-			Rayfield:Notify({ Title = "Config Loaded", Content = "Successfully loaded " .. filename, Duration = 5 })
-		else
-			Rayfield:Notify({ Title = "Load Error", Content = "Failed to load or parse " .. filename, Duration = 5 })
 		end
 	end
 end
 
---// -- UI Declaration --
-
+--// UI Declaration
 getUnits()
-local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
+AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
 for i = 1, 6 do
 	local unitName = units[i] or "Empty Slot"
@@ -172,13 +164,19 @@ for i = 1, 6 do
 	end
 
 	unitData[i].positionLabel = AutomationTab:CreateLabel("Position: Not Set", "arrow-down-to-dot")
+
 	unitData[i].positionBtn = AutomationTab:CreateButton({
 		Name = "Set Position",
 		Callback = function()
 			unitData[i].isWaitingForClick = not unitData[i].isWaitingForClick
-			unitData[i].positionBtn:Set(unitData[i].isWaitingForClick and "Waiting for click..." or "Set Position")
+			if unitData[i].isWaitingForClick then
+				unitData[i].positionBtn:Set("Waiting for click...")
+			else
+				unitData[i].positionBtn:Set("Set Position")
+			end
 		end,
 	})
+
 	AutomationTab:CreateToggle({
 		Name = "Auto Place Unit",
 		CurrentValue = false,
@@ -190,96 +188,18 @@ for i = 1, 6 do
 			end
 		end,
 	})
+
 	AutomationTab:CreateToggle({
-		Name = "Enable Server Auto-Upgrade",
+		Name = "Enable Auto-Upgrade", -- Renamed Toggle
 		CurrentValue = false,
 		Flag = "AU" .. i,
 		Enabled = not isSlotEmpty,
 		Callback = function(Value)
+			-- This toggle now just sets a flag. The main loop will handle the logic.
 			unitData[i].enableServerAutoUpgrade = Value
 		end,
 	})
 end
-
---// Configs Tab UI
-local ConfigsTab = Window:CreateTab("Configs", "file-cog")
-ConfigsTab:CreateLabel("Manage your position configurations.")
-
-ConfigDropdown =
-	ConfigsTab:CreateDropdown({ Name = "Saved Configs", Values = {}, AllowSet = false, Callback = function(value) end })
-local ConfigNameInput = ConfigsTab:CreateInput({
-	Name = "Config Name",
-	PlaceholderText = "E.g., Story Mode",
-	Default = "",
-	Callback = function(text) end,
-})
-
-ConfigsTab:CreateButton({
-	Name = "Load Selected Config",
-	Callback = function()
-		local selected = ConfigDropdown:Get()
-		if selected then
-			loadPositions(selected)
-		end
-	end,
-})
-
-ConfigsTab:CreateButton({
-	Name = "Save Current Positions",
-	Callback = function()
-		local name = ConfigNameInput:Get()
-		if name and name ~= "" then
-			local filename = name .. ".json"
-			savePositions(filename)
-			currentConfigFile = filename -- The new saved file is now the active one
-			Rayfield:Notify({ Title = "Config Saved", Content = "Saved positions to " .. filename, Duration = 5 })
-			refreshConfigDropdown()
-		else
-			Rayfield:Notify({ Title = "Save Error", Content = "Please enter a name for the config.", Duration = 5 })
-		end
-	end,
-})
-
-ConfigsTab:CreateButton({
-	Name = "Rename Selected Config",
-	Callback = function()
-		local selected = ConfigDropdown:Get()
-		local newName = ConfigNameInput:Get()
-		if selected and newName and newName ~= "" then
-			renamefile(configFolderName .. "/" .. selected, configFolderName .. "/" .. newName .. ".json")
-			Rayfield:Notify({
-				Title = "Config Renamed",
-				Content = selected .. " is now " .. newName .. ".json",
-				Duration = 5,
-			})
-			refreshConfigDropdown()
-		else
-			Rayfield:Notify({ Title = "Rename Error", Content = "Select a config and enter a new name.", Duration = 5 })
-		end
-	end,
-})
-
-ConfigsTab:CreateButton({
-	Name = "Delete Selected Config",
-	Callback = function()
-		local selected = ConfigDropdown:Get()
-		if selected then
-			delfile(configFolderName .. "/" .. selected)
-			Rayfield:Notify({ Title = "Config Deleted", Content = "Successfully deleted " .. selected, Duration = 5 })
-			refreshConfigDropdown()
-		end
-	end,
-})
-
-ConfigsTab:CreateButton({
-	Name = "Refresh List",
-	Callback = function()
-		refreshConfigDropdown()
-		Rayfield:Notify({ Title = "Refreshed", Content = "Configuration list has been updated.", Duration = 3 })
-	end,
-})
-
---// -- Final Setup and Loops --
 
 --// Global Input Handler
 UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
@@ -289,8 +209,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
 				unitData[i].position = getMousePosition()
 				unitData[i].positionLabel:Set("Position: " .. tostring(unitData[i].position))
 				unitData[i].isWaitingForClick = false
-				unitData[i].positionBtn:Set("Set Position")
-				savePositions(currentConfigFile) -- Auto-save to the currently loaded config file
+				if unitData[i].positionBtn then
+					unitData[i].positionBtn:Set("Set Position")
+				end
+				savePositions()
 				break
 			end
 		end
@@ -301,7 +223,9 @@ end)
 coroutine.wrap(function()
 	local placementLimits = localPlayer:WaitForChild("PlacementLimits")
 	local towersFolder = workspace:WaitForChild("Towers")
-	while task.wait(1) do
+
+	while task.wait(1) do -- Loop every second
+		-- Get a dictionary of currently placed units from PlacementLimits
 		local placedUnits = {}
 		for _, limitValue in ipairs(placementLimits:GetChildren()) do
 			if limitValue:IsA("IntValue") then
@@ -309,21 +233,28 @@ coroutine.wrap(function()
 			end
 		end
 
+		-- Check which towers need their auto-upgrade enabled
 		for unitName, _ in pairs(placedUnits) do
 			local towerInstance = towersFolder:FindFirstChild(unitName)
+
+			-- If the tower exists and we haven't processed it yet
 			if towerInstance and not processedTowers[towerInstance] then
+				-- Now, figure out which slot this tower belongs to by checking positions
 				for i = 1, 6 do
+					-- Check if the toggle for this slot is on and if its position is close to the tower
 					if unitData[i].enableServerAutoUpgrade and unitData[i].position then
 						if (towerInstance.PrimaryPart.Position - unitData[i].position).Magnitude < 5 then
+							-- We found the right slot! Enable auto-upgrade and mark as processed.
 							setServerAutoUpgrade(towerInstance)
 							processedTowers[towerInstance] = true
-							break
+							break -- Stop checking other slots for this tower
 						end
 					end
 				end
 			end
 		end
 
+		-- Clean up the 'processedTowers' table to remove towers that no longer exist
 		for tower, _ in pairs(processedTowers) do
 			if not tower.Parent then
 				processedTowers[tower] = nil
@@ -332,7 +263,108 @@ coroutine.wrap(function()
 	end
 end)()
 
---// Load configurations and initialize UI
-loadPositions(currentConfigFile) -- Load the default config on start
-refreshConfigDropdown() -- Populate the dropdown with all available configs
-Rayfield:LoadConfiguration() -- Load Rayfield's data (toggles, etc.)
+--// SUMMON FUNCTIONALITY
+local SummonTab = Window:CreateTab("Summon", "user")
+
+local SelectedBanner = "1" -- Default banner selection
+local SummonAmount = 1
+local SummonDelay = 0.5 -- Default delay time
+
+SummonAmountTextBox = SummonTab:CreateInput({
+	Name = "Summon Amount",
+	CurrentValue = "1",
+	PlaceholderText = "Enter amount (max 10)",
+	RemoveTextAfterFocusLost = false,
+	Flag = "SummonAmount",
+
+	Callback = function(Text)
+		--// Validate the input to ensure it's a number between 1 and 10
+		if tonumber(Text) > 10 then
+			notify("Error", "You cannot summon more than 10 at a time!", "x")
+			SummonAmountTextBox:Set("10") -- Reset to max allowed
+		elseif tonumber(Text) < 1 then
+			notify("Error", "You cannot summon less than 1 at a time!", "x")
+			SummonAmountTextBox:Set("1") -- Reset to min allowed
+			return
+		end
+
+		SummonAmount = tonumber(Text) or 1
+	end,
+})
+
+BannerDropdown = SummonTab:CreateDropdown({
+	Name = "Select Banner",
+	Options = { "1", "2", "3", "4" },
+	CurrentOption = { "1" },
+	MultipleOptions = false,
+	Flag = "BannerSelection",
+
+	Callback = function(Options)
+		SelectedBanner = Options[1]
+	end,
+})
+
+DelayTimeInput = SummonTab:CreateInput({
+	Name = "Summon Delay (Seconds)",
+	CurrentValue = "0.5",
+	PlaceholderText = "0.5",
+	RemoveTextAfterFocusLost = false,
+	Flag = "SummonDelay",
+
+	Callback = function(Text)
+		if tonumber(Text) < 0.5 then
+			notify("Error", "Delay time must be at least 0.5 seconds!", "x")
+			DelayTimeInput:Set("0.5")
+			return
+		end
+		SummonDelay = tonumber(Text) or 0.5
+	end,
+})
+
+local autoSummonEnabled = false -- Add this variable at the top near other globals
+
+SummonToggle = SummonTab:CreateToggle({
+	Name = "Auto Summon",
+	CurrentValue = false,
+	Flag = "AutoSummon",
+	Callback = function(Value)
+		autoSummonEnabled = Value
+		if autoSummonEnabled then
+			coroutine.wrap(function()
+				while autoSummonEnabled do
+					if not (SelectedBanner and SummonAmount > 0) then
+						notify("Error", "Please select a valid banner and amount.", "x")
+						SummonToggle:Set(false)
+						autoSummonEnabled = false
+						break
+					end
+
+					summonUnits(SummonAmount, SelectedBanner)
+
+					task.wait(SummonDelay)
+				end
+			end)()
+		end
+	end,
+})
+
+local miscTab = Window:CreateTab("Misc", "settings")
+
+miscTab:CreateButton({
+	Name = "Join Discord",
+	Callback = function()
+		setclipboard("discord.gg/soaHub")
+		notify("Success", "Discord link copied to clipboard!", "check")
+	end,
+})
+
+miscTab:CreateButton({
+	Name = "Destroy UI",
+	Callback = function()
+		Rayfield:Destroy()
+	end,
+})
+
+--// Load configurations AFTER UI has been created
+loadPositions()
+Rayfield:LoadConfiguration()
