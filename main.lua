@@ -78,5 +78,28 @@ end
 --// UI Declaration
 local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
+local unit1Position = nil
+local Unit1Position = AutomationTab:CreateLabel(
+	"Unit 1 Position: " .. tostring(unit1Position),
+	"location-edit",
+	Color3.fromRGB(123, 123, 123),
+	false
+)
+
+local unit1PositionBtn = AutomationTab:CreateButton({
+	Name = "Set Unit 1 Position",
+	Callback = function()
+		unit1Position = getMousePosition()
+		Unit1Position:Set("Unit 1 Position: " .. tostring(unit1Position))
+	end,
+})
+
+local autoPlace1 = AutomationTab:CreateToggle({
+	Name = "Auto Place: Unit 1",
+	CurrentValue = false,
+	Flag = "APU1",
+	Callback = function(Value) end,
+})
+
 --// DONT TOUCH.
 Rayfield:LoadConfiguration()
