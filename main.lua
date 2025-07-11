@@ -63,4 +63,3 @@ function upgradeUnit(unit, upgradeAmount)
 		game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("Upgrade"):InvokeServer(unpack(args))
 	end
 end
-
