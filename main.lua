@@ -25,8 +25,8 @@ local localPlayer = Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
 --// Module Data
-local units = {} -- This will map a slot index (1-6) to the unit's real name (e.g., units[1] = "LuffyG5")
-local unitData = {} -- This will store UI elements and position data for each slot
+local units = {} -- Maps slot index (1-6) to the unit's real name (e.g., units[1] = "LuffyG5")
+local unitData = {} -- Stores UI elements and position data for each slot
 for i = 1, 6 do
 	unitData[i] = {
 		position = nil,
@@ -38,30 +38,17 @@ end
 
 --// Core Functions
 
-function notifyPlayer(title, content, duration, image)
-	Rayfield:Notify({
-		Title = title,
-		Content = content,
-		Duration = duration,
-		Image = tostring(image),
-	})
-end
-
 --// Gets the real unit names from the player's slots
 function getUnits()
-	-- Reset the current unit list
 	table.clear(units)
 	local slotsPath = localPlayer:WaitForChild("Slots")
 	local slotChildren = slotsPath:GetChildren()
-
-	-- Sort children by name to ensure Slot1, Slot2, etc., are in order
 	table.sort(slotChildren, function(a, b)
 		return a.Name < b.Name
 	end)
 
 	for _, slotInstance in ipairs(slotChildren) do
 		if slotInstance:IsA("StringValue") then
-			-- Extract the number from the slot name (e.g., "Slot1" -> 1)
 			local slotIndex = tonumber(string.match(slotInstance.Name, "%d+"))
 			if slotIndex then
 				units[slotIndex] = slotInstance.Value
@@ -95,9 +82,8 @@ function upgradeUnit(unitIndex, upgradeAmount)
 
 	local towersFolder = workspace:WaitForChild("Towers")
 	local closestTower = nil
-	local minDistance = 5 -- Search radius in studs
+	local minDistance = 7 -- Increased search radius slightly for safety
 
-	-- Find the tower in the workspace closest to our saved position
 	for _, tower in ipairs(towersFolder:GetChildren()) do
 		if tower:IsA("Model") and tower.PrimaryPart then
 			local distance = (tower.PrimaryPart.Position - targetPosition).Magnitude
@@ -109,11 +95,10 @@ function upgradeUnit(unitIndex, upgradeAmount)
 	end
 
 	if closestTower then
-		-- Perform the requested number of upgrades
 		for i = 1, upgradeAmount or 1 do
 			local args = { closestTower }
 			ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Upgrade"):InvokeServer(unpack(args))
-			task.wait(0.1) -- Small delay to prevent server overload
+			task.wait(0.1)
 		end
 	end
 end
@@ -122,10 +107,13 @@ end
 local positionSaveFile = "soaHub/unitPositions.json"
 
 function savePositions()
+	if not isfolder("soaHub") then
+		makefolder("soaHub")
+	end
 	local positionsToSave = {}
 	for i = 1, #unitData do
 		if unitData[i].position then
-			positionsToSave["Unit" .. i] = {
+			positionsToSave["Slot" .. i] = {
 				x = unitData[i].position.X,
 				y = unitData[i].position.Y,
 				z = unitData[i].position.Z,
@@ -136,20 +124,19 @@ function savePositions()
 end
 
 function loadPositions()
-	if not isfolder("soaHub") then
-		makefolder("soaHub")
-	end
 	if isfile(positionSaveFile) then
 		local success, data = pcall(function()
 			return HttpService:JSONDecode(readfile(positionSaveFile))
 		end)
 
 		if success and data then
-			for unitName, posData in pairs(data) do
-				local unitIndex = tonumber(string.gsub(unitName, "Unit", ""))
-				if unitData[unitIndex] and unitData[unitIndex].positionLabel then
-					unitData[unitIndex].position = Vector3.new(posData.x, posData.y, posData.z)
-					unitData[unitIndex].positionLabel:Set("Position: " .. tostring(unitData[unitIndex].position))
+			for slotName, posData in pairs(data) do
+				local slotIndex = tonumber(string.match(slotName, "%d+"))
+				if slotIndex and unitData[slotIndex] and unitData[slotIndex].positionLabel then
+					local loadedPos = Vector3.new(posData.x, posData.y, posData.z)
+					unitData[slotIndex].position = loadedPos
+					-- This is the key change: Set the label text after it has been created
+					unitData[slotIndex].positionLabel:Set("Position: " .. tostring(loadedPos))
 				end
 			end
 		end
@@ -162,17 +149,19 @@ local AutomationTab = Window:CreateTab("Automation", "rotate-ccw")
 
 --// Dynamically create UI for all 6 unit slots
 for i = 1, 6 do
-	-- Use the real unit name for the UI, or a default if the slot is empty
-	local unitName = units[i] or "Empty Slot " .. i
+	local unitName = units[i] or "Empty Slot"
 	local isSlotEmpty = not units[i]
 
 	AutomationTab:CreateDivider()
-	local sectionLabel = AutomationTab:CreateLabel(string.format("Configuration for: %s", unitName))
+	local sectionLabel = AutomationTab:CreateLabel(string.format("Slot %d: %s", i, unitName))
 	if isSlotEmpty then
-		sectionLabel:SetColor(Color3.fromRGB(180, 180, 180)) -- Grey out text for empty slots
+		sectionLabel:SetColor(Color3.fromRGB(180, 180, 180))
 	end
 
-	unitData[i].positionLabel = AutomationTab:CreateLabel("Position: Not Set", "arrow-down-to-dot")
+	unitData[i].positionLabel = AutomationTab:CreateLabel(
+		"Position: Not Set", -- Default text
+		"arrow-down-to-dot"
+	)
 
 	unitData[i].positionBtn = AutomationTab:CreateButton({
 		Name = "Set Position",
@@ -192,7 +181,7 @@ for i = 1, 6 do
 		Flag = "APU" .. i,
 		Enabled = not isSlotEmpty,
 		Callback = function(Value)
-			while Value and task.wait(0.25) do
+			while Value and task.wait(0.05) do
 				placeUnit(units[i], unitData[i].position)
 			end
 		end,
@@ -204,7 +193,7 @@ for i = 1, 6 do
 		Flag = "AU" .. i,
 		Enabled = not isSlotEmpty,
 		Callback = function(Value)
-			while Value and task.wait(0.25) do
+			while Value and task.wait(0.05) do
 				upgradeUnit(i, 1)
 			end
 		end,
@@ -229,6 +218,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
 	end
 end)
 
---// Load configurations
-loadPositions() -- Load custom position data first
-Rayfield:LoadConfiguration() -- Then load Rayfield's toggle data
+--// Load configurations AFTER UI has been created
+loadPositions() -- Load and display saved positions
+Rayfield:LoadConfiguration() -- Load Rayfield's data (toggles, etc.)
