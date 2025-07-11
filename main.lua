@@ -24,7 +24,7 @@ local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
---// Module Data
+--// Data
 local units = {} -- Maps slot index (1-6) to the unit's base name (e.g., units[1] = "LuffyG5")
 local unitData = {} -- Stores UI elements and data for each slot
 local processedTowers = {} -- Tracks towers that have had auto-upgrade enabled
@@ -40,12 +40,12 @@ for i = 1, 6 do
 end
 
 --// Core Functions
-function notify(title, message)
+function notify(title, message, image)
 	Rayfield:Notify({
 		Title = tostring(title),
 		Content = tostring(message),
 		Duration = 3,
-		Image = "x",
+		Image = tostring(image),
 	})
 end
 
@@ -264,13 +264,13 @@ coroutine.wrap(function()
 end)()
 
 --// SUMMON FUNCTIONALITY
-local SummonDivider = AutomationTab:CreateDivider()
+local SummonTab = Window:CreateTab("Summon", "user")
 
 local SelectedBanner = "1" -- Default banner selection
 local SummonAmount = 1
 local SummonDelay = 0.5 -- Default delay time
 
-SummonAmountTextBox = AutomationTab:CreateInput({
+SummonAmountTextBox = SummonTab:CreateInput({
 	Name = "Summon Amount",
 	CurrentValue = "1",
 	PlaceholderText = "Enter amount (max 10)",
@@ -280,10 +280,10 @@ SummonAmountTextBox = AutomationTab:CreateInput({
 	Callback = function(Text)
 		--// Validate the input to ensure it's a number between 1 and 10
 		if tonumber(Text) > 10 then
-			notify("Error", "You cannot summon more than 10 at a time!")
+			notify("Error", "You cannot summon more than 10 at a time!", "x")
 			SummonAmountTextBox:Set("10") -- Reset to max allowed
 		elseif tonumber(Text) < 1 then
-			notify("Error", "You cannot summon less than 1 at a time!")
+			notify("Error", "You cannot summon less than 1 at a time!", "x")
 			SummonAmountTextBox:Set("1") -- Reset to min allowed
 			return
 		end
@@ -292,7 +292,7 @@ SummonAmountTextBox = AutomationTab:CreateInput({
 	end,
 })
 
-BannerDropdown = AutomationTab:CreateDropdown({
+BannerDropdown = SummonTab:CreateDropdown({
 	Name = "Select Banner",
 	Options = { "1", "2", "3", "4" },
 	CurrentOption = { "1" },
@@ -304,7 +304,7 @@ BannerDropdown = AutomationTab:CreateDropdown({
 	end,
 })
 
-DelayTimeInput = AutomationTab:CreateInput({
+DelayTimeInput = SummonTab:CreateInput({
 	Name = "Summon Delay (Seconds)",
 	CurrentValue = "0.5",
 	PlaceholderText = "0.5",
@@ -313,7 +313,7 @@ DelayTimeInput = AutomationTab:CreateInput({
 
 	Callback = function(Text)
 		if tonumber(Text) < 0.5 then
-			notify("Error", "Delay time must be at least 0.5 seconds!")
+			notify("Error", "Delay time must be at least 0.5 seconds!", "x")
 			DelayTimeInput:Set("0.5")
 			return
 		end
@@ -323,7 +323,7 @@ DelayTimeInput = AutomationTab:CreateInput({
 
 local autoSummonEnabled = false -- Add this variable at the top near other globals
 
-SummonToggle = AutomationTab:CreateToggle({
+SummonToggle = SummonTab:CreateToggle({
 	Name = "Auto Summon",
 	CurrentValue = false,
 	Flag = "AutoSummon",
@@ -333,7 +333,7 @@ SummonToggle = AutomationTab:CreateToggle({
 			coroutine.wrap(function()
 				while autoSummonEnabled do
 					if not (SelectedBanner and SummonAmount > 0) then
-						notify("Error", "Please select a valid banner and amount.")
+						notify("Error", "Please select a valid banner and amount.", "x")
 						SummonToggle:Set(false)
 						autoSummonEnabled = false
 						break
@@ -345,6 +345,23 @@ SummonToggle = AutomationTab:CreateToggle({
 				end
 			end)()
 		end
+	end,
+})
+
+local miscTab = Window:CreateTab("Misc", "settings")
+
+miscTab:CreateButton({
+	Name = "Join Discord",
+	Callback = function()
+		setclipboard("discord.gg/soaHub")
+		notify("Success", "Discord link copied to clipboard!", "check")
+	end,
+})
+
+miscTab:CreateButton({
+	Name = "Destroy UI",
+	Callback = function()
+		Rayfield:Destroy()
 	end,
 })
 
