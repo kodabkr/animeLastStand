@@ -1,12 +1,3 @@
---[[
-	Soa Hub - Anime Last Stand Automation Tool
-	Version: 3.1
-	Author: Koda
-	
-	Optimized for performance and maintainability
---]]
-
--- Constants
 local CONFIG = {
 	UI = {
 		NAME = "Soa Hub",
@@ -33,7 +24,6 @@ local CONFIG = {
 	},
 }
 
--- Services (cached for performance)
 local Services = {
 	UserInputService = game:GetService("UserInputService"),
 	ReplicatedStorage = game:GetService("ReplicatedStorage"),
@@ -45,7 +35,6 @@ local Services = {
 local localPlayer = Services.Players.LocalPlayer
 local mouse = localPlayer:GetMouse()
 
--- File system functions (check if they exist in the environment)
 local FileSystem = {
 	readfile = readfile or function()
 		return nil
@@ -67,7 +56,6 @@ local FileSystem = {
 	end,
 }
 
--- Initialize UI
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Window = Rayfield:CreateWindow({
 	Name = CONFIG.UI.NAME,
@@ -84,22 +72,20 @@ local Window = Rayfield:CreateWindow({
 	},
 })
 
--- State Management
 local State = {
-	units = {}, -- Maps slot index to unit name
-	unitData = {}, -- UI elements and data for each slot
-	processedTowers = {}, -- Tracks auto-upgrade enabled towers
+	units = {},
+	unitData = {},
+	processedTowers = {},
 	autoSummonEnabled = false,
 	summonConfig = {
 		selectedBanner = "1",
 		amount = 1,
 		delay = CONFIG.SUMMON.DEFAULT_DELAY,
 	},
-	connections = {}, -- Store connections for cleanup
-	loops = {}, -- Store loop tasks for cleanup
+	connections = {},
+	loops = {},
 }
 
--- Initialize unit data structure
 for i = 1, CONFIG.AUTOMATION.MAX_SLOTS do
 	State.unitData[i] = {
 		position = nil,
@@ -110,7 +96,6 @@ for i = 1, CONFIG.AUTOMATION.MAX_SLOTS do
 	}
 end
 
--- Utility Functions
 local Utils = {}
 
 function Utils.notify(title, message, image)
@@ -146,7 +131,6 @@ function Utils.safeWaitForChild(parent, childName, timeout)
 	timeout = timeout or 5
 	local startTime = os.clock()
 
-	-- Try GetService first if parent is game
 	if parent == game and typeof(game.GetService) == "function" then
 		local success, result = pcall(function()
 			return game:GetService(childName)
@@ -156,13 +140,11 @@ function Utils.safeWaitForChild(parent, childName, timeout)
 		end
 	end
 
-	-- Try FindFirstChild for immediate result
 	local child = parent:FindFirstChild(childName)
 	if child then
 		return child
 	end
 
-	-- Fall back to WaitForChild with timeout
 	local success, result = pcall(function()
 		return parent:WaitForChild(childName, timeout)
 	end)
@@ -192,7 +174,6 @@ function Utils.createTask(func)
 	return taskThread
 end
 
--- Core Game Functions
 local GameAPI = {}
 
 function GameAPI.getUnits()
@@ -293,7 +274,6 @@ function GameAPI.summonUnits(amount, banner)
 	return true
 end
 
--- Position Management
 local PositionManager = {}
 
 function PositionManager.save()
@@ -344,7 +324,6 @@ function PositionManager.load()
 	end
 end
 
--- Automation Manager
 local AutomationManager = {}
 
 function AutomationManager.init()
@@ -472,7 +451,6 @@ function AutomationManager.startAutoUpgradeLoop()
 				end
 			end
 
-			-- Cleanup processed towers that no longer exist
 			for tower, _ in pairs(State.processedTowers) do
 				if not tower.Parent then
 					State.processedTowers[tower] = nil
@@ -482,7 +460,6 @@ function AutomationManager.startAutoUpgradeLoop()
 	end)
 end
 
--- Summon Manager
 local SummonManager = {}
 
 function SummonManager.init()
@@ -563,7 +540,6 @@ function SummonManager.startAutoSummon(toggleRef)
 	end)
 end
 
--- Misc Manager
 local MiscManager = {}
 
 function MiscManager.init()
@@ -590,9 +566,7 @@ function MiscManager.init()
 	})
 end
 
--- Cleanup function
 function cleanupApplication()
-	-- Disconnect all connections
 	for _, connection in ipairs(State.connections) do
 		if typeof(connection) == "RBXScriptConnection" and connection.Connected then
 			connection:Disconnect()
@@ -600,31 +574,25 @@ function cleanupApplication()
 	end
 	table.clear(State.connections)
 
-	-- Cancel all running tasks
 	for _, loopTask in ipairs(State.loops) do
 		task.cancel(loopTask)
 	end
 	table.clear(State.loops)
 
-	-- Clear other state data
 	table.clear(State.processedTowers)
 	State.autoSummonEnabled = false
 end
 
--- Application Initialization
 local function initializeApplication()
-	-- Initialize all managers
 	AutomationManager.init()
 	SummonManager.init()
 	MiscManager.init()
 
-	-- Load saved configurations
 	PositionManager.load()
 	Rayfield:LoadConfiguration()
 
 	Utils.notify("Success", "Soa Hub loaded successfully!", "check")
 
-	-- Setup cleanup on script termination
 	Utils.safeConnect(game:GetService("CoreGui").ChildRemoved, function(child)
 		if child.Name == "Rayfield" then
 			cleanupApplication()
@@ -632,5 +600,4 @@ local function initializeApplication()
 	end)
 end
 
--- Start the application
 initializeApplication()
