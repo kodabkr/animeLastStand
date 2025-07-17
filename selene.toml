@@ -1,1 +1,13 @@
 std = "roblox"
+
+[config]
+unused_variable = "warn"
+
+[config.globals]
+readfile = "read_write"
+writefile = "read_write"
+makefolder = "read_write"
+isfolder = "read_write"
+isfile = "read_write"
+setclipboard = "read_write"
+loadstring = "read_write"
